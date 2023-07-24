@@ -1,0 +1,22 @@
+name: CI
+
+on:
+  push:
+    paths:
+      - '**.rs'
+      - Cargo.toml
+      - Cargo.lock
+      - .github/workflows/ci.yml
+    branches: [ '**' ]
+    tags-ignore: [ '**' ] 
+  workflow_call:
+
+jobs:
+  test:
+    name: Run tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout and setup
+        uses: speelbarrow/checkout-and-setup@v0
+      - name: Run tests
+        run: cargo test

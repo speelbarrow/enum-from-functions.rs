@@ -1,0 +1,12 @@
+[package]
+name = "enum-from-functions"
+description = """A procedural macro that will create an enum with associated functions that each have a corresponding \
+variant."""
+version = "0.0.0"
+repository = "https://github.com/speelbarrow/enum-from-functions.rs"
+authors = ["Noah Friedman"]
+license = "OSL-3.0"
+edition = "2021"
+
+[lib]
+proc-macro = true

@@ -1,0 +1,14 @@
+name: ""
+description: ""
+inputs:
+  variables:
+    description: ""
+    required: false
+runs: 
+  using: composite
+  steps:
+    - uses: actions-rust-lang/setup-rust-toolchain@v1
+      with:
+        toolchain: stable
+        rustflags:
+        target: ${{ inputs.variables }}
