@@ -91,6 +91,13 @@ impl Enum {
     }
 }
 ```
+You can also create an empty `enum` by not providing any functions in the `impl` block (though I'm not sure why you
+would want to do this).
+```
+# use enum_from_functions::enum_from_functions;
+#[enum_from_functions]
+impl EmptyEnum {}
+```
 If you need to export the generated `enum` type out of its parent module, provide the `pub` argument to the macro
 attribute.
 ```
@@ -156,7 +163,7 @@ impl Enum {
 use convert_case::{Case, Casing};
 use proc_macro::{Span, TokenStream};
 use syn::{
-    parse_macro_input,
+    parse_macro_input, parse_quote,
     punctuated::{Pair, Punctuated},
     token::Comma,
     FnArg, ImplItem, Pat,
@@ -238,20 +245,28 @@ pub fn enum_from_functions(args: TokenStream, input: TokenStream) -> TokenStream
     }
 
     let enum_name = &parsed_impl.self_ty;
-    let (map_sig, arg_names) = first_sig.map_or((None, None), |some| {
-        let mut r_sig = some.clone();
-        r_sig.ident = syn::Ident::new("map", Span::call_site().into());
-        r_sig.inputs.insert(0, syn::parse_quote!(self));
+    if let Some(item) = first_sig.map(|some| {
+        let mut sig = some.clone();
+        sig.ident = syn::Ident::new("map", Span::call_site().into());
+        sig.inputs.insert(0, syn::parse_quote!(self));
 
-        let r_args = Punctuated::<&Box<Pat>, Comma>::from_iter(some.inputs.pairs().map(|pair| {
+        let args = Punctuated::<&Box<Pat>, Comma>::from_iter(some.inputs.pairs().map(|pair| {
             match pair.value() {
                 FnArg::Typed(arg) => Pair::new(&arg.pat, pair.punct().map(|_| Comma::default())),
                 FnArg::Receiver(_) => unreachable!(),
             }
         }));
 
-        (Some(r_sig), Some(r_args))
-    });
+        parse_quote! {
+            pub #sig {
+                match self {
+                    #(Self::#variants => Self::#function_names(#args)),*
+                }
+            }
+        }
+    }) {
+        parsed_impl.items.push(item)
+    }
     let out = quote::quote! {
         #(#attrs)*
         #parsed_pub enum #enum_name {
@@ -259,16 +274,7 @@ pub fn enum_from_functions(args: TokenStream, input: TokenStream) -> TokenStream
         }
 
         #parsed_impl
-
-        impl #enum_name {
-            pub #map_sig {
-                match self {
-                    #(Self::#variants => Self::#function_names (#arg_names)),*
-                }
-            }
-        }
     };
 
-    dbg!(&out.to_string());
     out.into()
 }
