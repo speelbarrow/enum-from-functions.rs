@@ -104,26 +104,22 @@ mod internal {
     }
 }
 
+// Will compile because the generated `enum` is visible outside of the `internal` module.
 use internal::Visible;
-fn main() {
-# assert!((|| { return
-    Visible::map(Visible::Example);
-# })());
-}
 ```
 ```compile_fail
-#   mod internal {
-#       #[enum_from_functions::enum_from_functions]
-#       impl NotVisible {
-#           fn example() -> bool {
-#               false
-#           }
-#       }
-#   }
-#
-#   fn main() {
-#       assert!(!NotVisible::map(NotVisible::Example));
-#   }
+mod internal {
+#   use enum_from_functions::enum_from_functions;
+    #[enum_from_functions]
+    impl NotVisible {
+        fn example() -> bool {
+            false
+        }
+    }
+}
+
+// Causes a compile error because the generated `enum` is not visible outside of the `internal` module.
+use internal::NotVisible;
 ```
 Items in the `impl` block that are not functions will be ignored and passed through to the output unchanged.
 Similarly, any attributes applied before *or* after the macro attribute will be applied to the generated `enum`
