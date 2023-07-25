@@ -65,6 +65,29 @@ impl Enum {
     }
 }
 ```
+```
+# use enum_from_functions::enum_from_functions;
+// `async` functions are allowed, but then all functions in the `impl` block must be `async`.
+// As well, the generated `map` function will also be `async`.
+#[enum_from_functions]
+impl Enum {
+    async fn foo() -> &'static str {
+        "Foo"
+    }
+    async fn bar() -> &'static str {
+        "Bar"
+    }
+}
+
+fn main() {
+# futures::executor::block_on(
+    async {
+        assert_eq!(Enum::map(Enum::Foo).await, "Foo");
+        assert_eq!(Enum::map(Enum::Bar).await, "Bar");
+    }
+# )
+}
+```
 ```compile_fail
 # use enum_from_functions::enum_from_functions;
 // Causes a compile error because the return types don't match.
