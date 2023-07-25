@@ -6,6 +6,7 @@ version = "0.0.0"
 repository = "https://github.com/speelbarrow/enum-from-functions.rs"
 authors = ["Noah Friedman"]
 license = "OSL-3.0"
+documentation = "https://docs.rs/crates/enum-from-functions"
 edition = "2021"
 
 [lib]
