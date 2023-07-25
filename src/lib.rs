@@ -90,9 +90,12 @@ fn main() {
 #   }
 ```
 Items in the `impl` block that are not functions will be ignored and passed through to the output unchanged.
+Similarly, any attributes applied before *or* after the macro attribute will be applied to the generated `enum`
+declaration.
 ```
 # use enum_from_functions::enum_from_functions;
 #[enum_from_functions]
+##[derive(Debug)]
 impl Enum {
     const FOO: &'static str = "Foo";
     fn foo() -> &'static str {
@@ -113,6 +116,7 @@ impl Enum {
 #     assert_eq!(Enum::map(&Enum::Foo), "Foo");
 #     assert_eq!(Enum::map(&Enum::Bar), "Bar");
 #     assert_eq!(Enum::map(&Enum::Baz), "Baz");
+#     let _ = format!("{:?}", Enum::Foo);
 # }
 ```
 */
