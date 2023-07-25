@@ -244,6 +244,7 @@ pub fn enum_from_functions(args: TokenStream, input: TokenStream) -> TokenStream
         }
     }
 
+    // Define variables needed for `quote` to generate the output.
     let enum_name = &parsed_impl.self_ty;
     if let Some(item) = first_sig.map(|some| {
         let mut sig = some.clone();
@@ -267,14 +268,15 @@ pub fn enum_from_functions(args: TokenStream, input: TokenStream) -> TokenStream
     }) {
         parsed_impl.items.push(item)
     }
-    let out = quote::quote! {
+
+    // Generate and return the output.
+    quote::quote! {
         #(#attrs)*
         #parsed_pub enum #enum_name {
             #(#variants),*
         }
 
         #parsed_impl
-    };
-
-    out.into()
+    }
+    .into()
 }
