@@ -89,6 +89,32 @@ fn main() {
 #       assert!(!NotVisible::map(&NotVisible::Example));
 #   }
 ```
+Items in the `impl` block that are not functions will be ignored and passed through to the output unchanged.
+```
+# use enum_from_functions::enum_from_functions;
+#[enum_from_functions]
+impl Enum {
+    const FOO: &'static str = "Foo";
+    fn foo() -> &'static str {
+        Self::FOO
+    }
+
+    const BAR: &'static str = "Bar";
+    fn bar() -> &'static str {
+        Self::BAR
+    }
+
+    const BAZ: &'static str = "Baz";
+    fn baz() -> &'static str {
+        Self::BAZ
+    }
+}
+# fn main() {
+#     assert_eq!(Enum::map(&Enum::Foo), "Foo");
+#     assert_eq!(Enum::map(&Enum::Bar), "Bar");
+#     assert_eq!(Enum::map(&Enum::Baz), "Baz");
+# }
+```
 */
 
 use proc_macro::TokenStream;
