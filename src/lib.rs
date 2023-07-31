@@ -8,60 +8,63 @@ An example:
 # use enum_from_functions::enum_from_functions;
 #[enum_from_functions]
 impl Enum {
-    fn foo() -> &'static str {
+    async fn foo() -> &'static str {
         "Foo"
     }
-    fn bar() -> &'static str {
+    unsafe fn bar(baz: i32) -> &'static str {
         "Bar"
-    }
-
-    fn baz() -> &'static str {
-        "Baz"
     }
 }
 # fn main() {
-#     assert_eq!(Enum::map(Enum::Foo), "Foo");
-#     assert_eq!(Enum::map(Enum::Bar), "Bar");
-#     assert_eq!(Enum::map(Enum::Baz), "Baz");
+#     futures::executor::block_on(
+#         async {
+#             unsafe {
+#                 assert_eq!(Enum::map(Enum::Foo).await, "Foo");
+#                 assert_eq!(Enum::map(Enum::Bar(1337)).await, "Bar");
+#             }
+#         }
+#     )
 # }
 ```
 expands to:
 ```ignore
 enum Enum {
     Foo,
-    Bar,
-    Baz,
+    Bar {
+        baz: i32
+    },
 }
 
 impl Enum {
-    fn foo() -> &'static str {
+    async fn foo() -> &'static str {
         "Foo"
     }
-    fn bar() -> &'static str {
+    unsafe fn bar(baz: i32) -> &'static str {
         "Bar"
     }
-    fn baz() -> &'static str {
-        "Baz"
-    }
 
-    fn map(&self) -> &'static str {
+    async unsafe fn map(&self) -> &'static str {
         match self {
-            Enum::Foo => Enum::foo(),
-            Enum::Bar => Enum::bar(),
-            Enum::Baz => Enum::baz(),
+            Enum::Foo => Enum::foo().await,
+            Enum::Bar(baz) => Enum::bar(baz),
         }
     }
 }
 ```
-The signatures of all the functions in the `impl` block must be the same and must not use the `self` keyword. Aside
-from that, any function signature will work with this macro.
-```compile_fail
+The signatures of functions in the `impl` block may be different, so long as they all have the same return type.
+
+Note that `fn f() -> T` and `async fn f() -> T` are considered to return the same type, even though the latter
+technically returns a `impl Future<Output = T>`. See
+[the `async` keyword documentation](https://doc.rust-lang.org/std/keyword.async.html) for more information.
+```
 # use enum_from_functions::enum_from_functions;
 #[enum_from_functions]
 impl Enum {
-    // Causes a compile error because the `self` argument isn't allowed.
-    fn foo(self) -> &'static str {
+    fn foo(_: i32) -> &'static str {
         "Foo"
+    }
+    async fn bar(&self, _: bool) -> &'static str {
+        "Bar"
     }
 }
 ```
@@ -78,40 +81,21 @@ impl Enum {
     }
 }
 ```
+`async`, `const` and `unsafe` functions are supported. The presence of any of these keywords will result in the
+generated `map` function having the same keyword. For this reason, `async` and `const` functions cannot be present in
+the same `impl` block (though `unsafe` functions can be present with either of the other two).
 ```compile_fail
-# use enum_from_functions::enum_from_functions;
-// Causes a compile error because the argument types don't match.
-#[enum_from_functions]
-impl Enum {
-    fn foo(_: i32) -> &'static str {
-        "Foo"
-    }
-    fn bar(_: bool) -> &'static str {
-        "Bar"
-    }
-}
-```
-`async` functions are allowed, but then all functions in the `impl` block must be `async`. The generated `map` function
-will also be `async`.
-```
 # use enum_from_functions::enum_from_functions;
 #[enum_from_functions]
 impl Enum {
     async fn foo() -> &'static str {
         "Foo"
     }
-    async fn bar() -> &'static str {
+    const fn bar() -> &'static str {
         "Bar"
     }
-}
 
-fn main() {
-# futures::executor::block_on(
-    async {
-        assert_eq!(Enum::map(Enum::Foo).await, "Foo");
-        assert_eq!(Enum::map(Enum::Bar).await, "Bar");
-    }
-# )
+    // This would result in `async const map(...` which is not supported in Rust.
 }
 ```
 You can also create an empty `enum` by not providing any functions in the `impl` block (though I'm not sure why you
