@@ -20,7 +20,7 @@ impl Enum {
 #         async {
 #             unsafe {
 #                 assert_eq!(Enum::map(Enum::Foo).await, "Foo");
-#                 assert_eq!(Enum::map(Enum::Bar(1337)).await, "Bar");
+#                 assert_eq!(Enum::map(Enum::Bar { baz: 1337 }).await, "Bar");
 #             }
 #         }
 #     )
@@ -60,10 +60,10 @@ technically returns a `impl Future<Output = T>`. See
 # use enum_from_functions::enum_from_functions;
 #[enum_from_functions]
 impl Enum {
-    fn foo(_: i32) -> &'static str {
+    fn foo(baz: i32) -> &'static str {
         "Foo"
     }
-    async fn bar(&self, _: bool) -> &'static str {
+    async fn bar(&self, baz: bool) -> &'static str {
         "Bar"
     }
 }
@@ -167,130 +167,81 @@ impl Enum {
 ```
 */
 
-use convert_case::{Case, Casing};
-use proc_macro::{Span, TokenStream};
-use syn::{
-    parse_macro_input, parse_quote,
-    punctuated::{Pair, Punctuated},
-    token::Comma,
-    FnArg, ImplItem, Pat, Token,
-};
+mod extract;
+mod generate;
+
+use generate::WithoutTypes;
+use proc_macro::TokenStream;
+use proc_macro_error::{abort, emit_error, proc_macro_error};
+use quote::quote;
+use syn::{parse_macro_input, parse_quote, ExprBlock, Field, Fields, ItemImpl};
 
 /**
 A procedural macro attribute that generates an `enum` based on the functions defined in the `impl` block it annotates.
 See the crate documentation for more information.
 */
+#[proc_macro_error]
 #[proc_macro_attribute]
 pub fn enum_from_functions(args: TokenStream, input: TokenStream) -> TokenStream {
-    // Parse the arguments either as empty or as a `pub` token. Any other arguments cause an error.
-    let parsed_pub = if !args.is_empty() {
-        Some(parse_macro_input!(args as syn::Token![pub]))
-    } else {
-        None
+    let pub_token = match extract::pub_token(args) {
+        Ok(pub_token) => pub_token,
+        Err(err) => {
+            emit_error!(err.span(), err);
+            None
+        }
     };
 
-    // Parse the input as an `impl` block (any other input will cause an error here).
-    let mut parsed_impl = parse_macro_input!(input as syn::ItemImpl);
+    let (parsed_input, attributes) = {
+        let mut parsed_input = parse_macro_input!(input as ItemImpl);
+        let attributes = parsed_input.attrs.clone();
+        parsed_input.attrs.clear();
+        (parsed_input, attributes)
+    };
 
-    // Set aside the attributes (if any) on the `impl` block for later, moving them out of the `impl` block.
-    let attrs = parsed_impl.attrs.drain(..).collect::<Vec<_>>();
+    let enum_name = &*parsed_input.self_ty;
+    let functions = match extract::Functions::try_from(&parsed_input) {
+        Ok(functions) => functions,
+        Err(err) => abort!(err.span(), err),
+    };
 
-    // Iterate through the items in the `impl` block, looking for functions.
-    // Each function has its signature verified against the first found function. Then the name is converted to
-    // PascalCase and added to the list of variant identifiers.
+    // Unpack the struct here because we can't in the `quote` block.
+    let (return_type, asyncness, constness, unsafety, calls, variants) = {
+        (
+            &functions.return_type,
+            functions.asyncness,
+            functions.constness,
+            functions.unsafety,
+            &functions.calls,
+            generate::Variants::from(&functions),
+        )
+    };
 
-    let mut variants = Vec::<syn::Ident>::new();
-    let mut function_names = Vec::<syn::Ident>::new();
-    let mut first_sig: Option<&syn::Signature> = None;
-
-    for item in parsed_impl.items.iter() {
-        // Only proceed if the item is a function.
-        if let ImplItem::Fn(function) = item {
-            // If `first_sig` has already been set, verify this function's signature against it. Otherwise, assign it.
-            if let Some(first_sig) = first_sig {
-                macro_rules! anonimize {
-                    ($sig:expr) => {{
-                        let mut to_anon = $sig.clone();
-                        to_anon.ident =
-                            syn::Ident::new("anon", proc_macro::Span::call_site().into());
-                        to_anon
-                    }};
-                }
-
-                let (anon_first_sig, anon_func_sig) =
-                    (anonimize!(first_sig), anonimize!(&function.sig));
-                if anon_first_sig != anon_func_sig {
-                    syn::Error::new(
-                        Span::call_site().into(),
-                        format!(
-                            "mismatched signatures:\n\t`{:?}`\nand\n\t`{:?}`",
-                            anon_first_sig, anon_func_sig
-                        ),
-                    )
-                    .into_compile_error();
-                }
-            } else {
-                // If the first function has a `self` argument, error out.
-                if let Some(syn::FnArg::Receiver(_)) = function.sig.inputs.first() {
-                    syn::Error::new(
-                        Span::call_site().into(),
-                        "the `self` argument is not allowed in functions used by `enum_from_functions`",
-                    )
-                    .into_compile_error();
-                }
-
-                first_sig = Some(&function.sig);
-            }
-
-            // Convert the function's name to PascalCase and add it to the list of variant identifiers.
-            variants.push(syn::Ident::new(
-                &function.sig.ident.to_string().to_case(Case::Pascal),
-                Span::call_site().into(),
-            ));
-            function_names.push(function.sig.ident.clone());
+    let variants_iter = variants.0.iter();
+    let variant_names = variants.0.iter().map(|variant| &variant.ident);
+    let variant_fields = variants.0.iter().map(|variant| -> Option<ExprBlock> {
+        if let Fields::Named(fields) = &variant.fields {
+            let no_types = Field::without_types(&fields.named);
+            Some(parse_quote! { { #no_types } })
+        } else {
+            None
         }
-    }
+    });
 
-    // Define variables needed for `quote` to generate the output.
-    let enum_name = &parsed_impl.self_ty;
-    if let Some(item) = first_sig.map(|some| {
-        let mut sig = some.clone();
-        sig.ident = syn::Ident::new("map", Span::call_site().into());
-        sig.inputs.insert(0, syn::parse_quote!(self));
+    quote! {
+        #(#attributes)*
+        #pub_token enum #enum_name {
+            #(#variants_iter,)*
+        }
 
-        let args = Punctuated::<&Box<Pat>, Comma>::from_iter(some.inputs.pairs().map(|pair| {
-            match pair.value() {
-                FnArg::Typed(arg) => Pair::new(&arg.pat, pair.punct().map(|_| Comma::default())),
-                FnArg::Receiver(_) => unreachable!(),
-            }
-        }));
+        #parsed_input
 
-        let (await_dot, await_token) = some.asyncness.map_or((None, None), |_| {
-            (
-                Some(<Token![.]>::default()),
-                Some(<Token![await]>::default()),
-            )
-        });
-
-        parse_quote! {
-            pub #sig {
+        impl #enum_name {
+            #pub_token #asyncness #constness #unsafety fn map(self) #return_type {
                 match self {
-                    #(Self::#variants => Self::#function_names(#args) #await_dot #await_token),*
+                    #(Self::#variant_names #variant_fields => #calls,)*
                 }
             }
         }
-    }) {
-        parsed_impl.items.push(item)
-    }
-
-    // Generate and return the output.
-    quote::quote! {
-        #(#attrs)*
-        #parsed_pub enum #enum_name {
-            #(#variants),*
-        }
-
-        #parsed_impl
     }
     .into()
 }
