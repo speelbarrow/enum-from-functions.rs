@@ -2,4 +2,4 @@
 
 **A procedural macro that will create an enum with associated functions that each have a corresponding variant.**
 
-Documentation can be found inline or on [docs.rs](https://docs.rs/crates/enum-from-functions).
+Documentation can be found inline or on [docs.rs](https://docs.rs/enum-from-functions/latest/enum_from_functions/).
